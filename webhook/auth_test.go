@@ -15,7 +15,9 @@ package webhook
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
@@ -24,7 +26,7 @@ import (
 	"testing"
 )
 
-func Test_Auth(t *testing.T) {
+func TestGitCodeAuthenticationAuth(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -200,7 +202,7 @@ func Test_Auth(t *testing.T) {
 				httptest.NewRecorder(),
 				nil,
 			},
-			RequestNilErr.Error(),
+			errorNilRequest.Error(),
 			nil,
 		},
 	}
@@ -218,7 +220,22 @@ func Test_Auth(t *testing.T) {
 	}
 }
 
-func Test_SetSignKey(t *testing.T) {
+func TestGitCodeAuthenticationAuthByMock(t *testing.T) {
+	e := errors.New("fad")
+	patch := gomonkey.ApplyFunc(ReadPayload, func(w http.ResponseWriter, r *http.Request) (*bytes.Buffer, error) {
+		return nil, e
+	})
+
+	defer patch.Reset()
+
+	a := GitCodeAuthentication{signKey: "1234"}
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/case8", nil)
+
+	err := a.Auth(httptest.NewRecorder(), req)
+	assert.Equal(t, err, e)
+}
+
+func TestGitCodeAuthenticationSetSignKey(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -238,7 +255,7 @@ func Test_SetSignKey(t *testing.T) {
 				GitCodeAuthentication{},
 				nil,
 			},
-			TokenNilError,
+			errorNilToken,
 			nil,
 		},
 		{
@@ -247,7 +264,7 @@ func Test_SetSignKey(t *testing.T) {
 				GitCodeAuthentication{},
 				[]byte(""),
 			},
-			TokenNilError,
+			errorNilToken,
 			nil,
 		},
 		{
@@ -285,7 +302,7 @@ func Test_SetSignKey(t *testing.T) {
 	}
 }
 
-func Test_GetPayload(t *testing.T) {
+func TestGitCodeAuthenticationGetPayload(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -333,7 +350,7 @@ func Test_GetPayload(t *testing.T) {
 	}
 }
 
-func Test_GetEventType(t *testing.T) {
+func TestGitCodeAuthenticationGetEventType(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -387,7 +404,7 @@ func Test_GetEventType(t *testing.T) {
 	}
 }
 
-func Test_GetEventGUID(t *testing.T) {
+func TestGitCodeAuthenticationGetEventGUID(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -441,7 +458,7 @@ func Test_GetEventGUID(t *testing.T) {
 	}
 }
 
-func Test_signSuccess(t *testing.T) {
+func TestGitCodeAuthenticationsignSuccess(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, false, signSuccess("", " "))
@@ -449,11 +466,11 @@ func Test_signSuccess(t *testing.T) {
 	assert.Equal(t, true, signSuccess("1231", "1231"))
 }
 
-func Test_handleErr(t *testing.T) {
+func TestGitCodeAuthenticationhandleErr(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, fmt.Errorf(httpStatusCodeIncorrectErrorFormat, http.StatusAccepted), handleErr(httptest.NewRecorder(), http.StatusAccepted, ""))
-	assert.Equal(t, ResponseNilErr, handleErr(nil, http.StatusBadRequest, ""))
+	assert.Equal(t, errorNilResponse, handleErr(nil, http.StatusBadRequest, ""))
 
 	w := httptest.NewRecorder()
 	assert.Equal(t, "1234", handleErr(w, http.StatusBadRequest, "1234").Error())
@@ -461,4 +478,25 @@ func Test_handleErr(t *testing.T) {
 	var got strings.Builder
 	_, _ = io.Copy(&got, w.Result().Body)
 	assert.Equal(t, "1234\n", got.String())
+}
+
+func TestReadPayload(t *testing.T) {
+	e := errors.New("read err")
+	patch := gomonkey.ApplyFunc(io.Copy, func(dst io.Writer, src io.Reader) (written int64, err error) {
+		return 0, e
+	})
+	defer patch.Reset()
+
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost:8080/case9", func() io.Reader {
+		var b io.Reader
+		buf := &bytes.Buffer{}
+		buf.Write([]byte("{\n  \"note\": \"/ibforuorg/community-test/pulls/2#note_30974945\" \n }"))
+		b = buf
+		return b
+	}())
+	payload, err1 := ReadPayload(httptest.NewRecorder(), req)
+	var p *bytes.Buffer
+	assert.Equal(t, p, payload)
+	assert.Equal(t, e, err1)
+
 }
